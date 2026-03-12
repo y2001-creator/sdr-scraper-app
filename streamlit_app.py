@@ -12,6 +12,12 @@ import altair as alt
 
 st.set_page_config(page_title="SDR Scraper 360", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
+# --- INITIALIZE SESSION STATE ---
+if 'all_companies' not in st.session_state:
+    st.session_state.all_companies = []
+if 'total_searches' not in st.session_state:
+    st.session_state.total_searches = 0
+
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
@@ -290,48 +296,56 @@ with st.sidebar:
     
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("**Account**")
-    outscraper_key = st.text_input("Outscraper API Key", value="NGE4NjZjZDQ5YzBmNGZkNDgzNjVjNmJiNTk2MzVkMGF8MzBlYzQ3NzE1MQ", type="password")
-    serper_key = st.text_input("Serper API Key", value="0e34f7a5bcf1bf4db7f5d9b77ba4e273d11fabb1", type="password")
+    outscraper_key = st.text_input("Outscraper API Key", value="", type="password")
+    serper_key = st.text_input("Serper API Key", value="", type="password")
 
 
 # Main Area
 colTop1, colTop2 = st.columns([0.8, 0.2])
 with colTop1:
-    st.markdown("<h3>Welcome back, John</h3>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#A0AEC0; font-size: 14px;'>Launch new extraction commands and report B2B traffic.</p>", unsafe_allow_html=True)
+    st.markdown("<h3>SDR Command Center</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#A0AEC0; font-size: 14px;'>Launch new extraction commands. Your history is saved during this session.</p>", unsafe_allow_html=True)
 with colTop2:
-    st.button("Create report", type="primary")
+    if st.button("Clear History", type="primary"):
+        st.session_state.all_companies = []
+        st.session_state.total_searches = 0
+        st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
+
+# Calculate Dynamic Metrics
+total_leads = len(st.session_state.all_companies)
+emails_enriched = sum(1 for c in st.session_state.all_companies if c["Email"] != "No disponible")
+c_level_found = sum(1 for c in st.session_state.all_companies if c["NombreDirectivo"] != "No disponible")
 
 # Metrics Row
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.markdown("""
+    st.markdown(f"""
     <div class="metric-card">
         <div class="metric-title">👁 Total Leads Scraped</div>
-        <div class="metric-value">1,402 <span class="metric-delta">28.4% ↗</span></div>
+        <div class="metric-value">{total_leads} <span class="metric-delta">Historial</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col2:
-    st.markdown("""
+    st.markdown(f"""
     <div class="metric-card">
         <div class="metric-title">📧 Emails Enriched</div>
-        <div class="metric-value">845 <span class="metric-delta">12.6% ↗</span></div>
+        <div class="metric-value">{emails_enriched} <span class="metric-delta">Valid</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col3:
-    st.markdown("""
+    st.markdown(f"""
     <div class="metric-card">
         <div class="metric-title">👔 C-Level Found</div>
-        <div class="metric-value">756 <span class="metric-delta">3.1% ↗</span></div>
+        <div class="metric-value">{c_level_found} <span class="metric-delta">LinkedIn</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col4:
-    st.markdown("""
+    st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-title">⭐ Campaign Success</div>
-        <div class="metric-value">12.3% <span class="metric-delta">1.5% ↗</span></div>
+        <div class="metric-title">🎯 Total Searches Run</div>
+        <div class="metric-value">{st.session_state.total_searches} <span class="metric-delta">Queries</span></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -374,15 +388,23 @@ if submitted and nicho and ubicacion:
             if "data" in data and len(data["data"]) > 0:
                 companies_raw = data["data"][0]
                 
+            # Filter duplicates BEFORE heavy scraping
+            existing_names = {c["Empresa"].lower().strip() for c in st.session_state.all_companies}
+            
             companies = []
-            for item in companies_raw: companies.append(extract_company_data(item))
-                
+            for item in companies_raw: 
+                c_data = extract_company_data(item)
+                c_name = c_data["Empresa"].lower().strip()
+                if c_name not in existing_names and c_name != "no disponible":
+                    companies.append(c_data)
+                    existing_names.add(c_name)
+                    
             if not companies:
-                status.update(label="Fallido", state="error", expanded=False)
-                st.warning("No se encontraron empresas para esa búsqueda.")
+                status.update(label="Omitido: Todas las empresas de esta página ya habían sido extraídas.", state="error", expanded=False)
+                st.warning("Todas las empresas ya estaban en el historial. Intenta otra ubicación u otro rubro.")
                 st.stop()
                 
-            st.write("Fase 1.5: Visitando sitios web y extrayendo correos y Redes Sociales...")
+            st.write(f"Fase 1.5: Visitando {len(companies)} web nuevas y extrayendo correos y Redes Sociales...")
             for i, c in enumerate(companies):
                 if c["SitioWeb"] != "No disponible":
                     scraped = scrape_contact_info(c["SitioWeb"], serper_key, c["Empresa"])
@@ -394,23 +416,32 @@ if submitted and nicho and ubicacion:
                         
             st.write("Fase 2: Enriqueciendo perfiles directivos en LinkedIn...")
             enrich_c_level(companies, serper_key)
-            status.update(label="Extracción Completada!", state="complete", expanded=False)
+            
+            # Save to global session history
+            st.session_state.all_companies.extend(companies)
+            st.session_state.total_searches += 1
+            
+            status.update(label=f"¡{len(companies)} nuevas empresas extraídas y sumadas a tu historial!", state="complete", expanded=False)
+            st.rerun()
         
-        st.markdown("#### Reports overview")
-        df = pd.DataFrame(companies)
-        cols = ["Empresa", "Direccion", "Telefono", "SitioWeb", "Email", "LinkedInEmpresa", "Instagram", "Facebook", "NombreDirectivo", "Cargo", "LinkedInDirectivo"]
-        df = df[cols]
+st.markdown("#### Reports overview")
+if len(st.session_state.all_companies) > 0:
+    df = pd.DataFrame(st.session_state.all_companies)
+    cols = ["Empresa", "Direccion", "Telefono", "SitioWeb", "Email", "LinkedInEmpresa", "Instagram", "Facebook", "NombreDirectivo", "Cargo", "LinkedInDirectivo"]
+    df = df[cols]
         
-        # Display the custom styled dataframe
-        st.dataframe(df, use_container_width=True, height=400)
-        
-        # Download button
-        csv = df.to_csv(index=False).encode('utf-8')
-        col_down1, _ = st.columns([1, 4])
-        with col_down1:
-            st.download_button(
-                label="📥 Export Data (CSV)",
-                data=csv,
-                file_name=f'Leads_{nicho}_{ubicacion}.csv',
-                mime='text/csv',
-            )
+    # Display the custom styled dataframe
+    st.dataframe(df, use_container_width=True, height=400)
+    
+    # Download button
+    csv = df.to_csv(index=False).encode('utf-8')
+    col_down1, _ = st.columns([1, 4])
+    with col_down1:
+        st.download_button(
+            label="📥 Export Cumulative Data (CSV)",
+            data=csv,
+            file_name=f'Leads_History.csv',
+            mime='text/csv',
+        )
+else:
+    st.info("Your scraping history is currently empty. Run a new extraction above to start populating this dashboard.")
