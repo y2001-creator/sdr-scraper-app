@@ -12,11 +12,28 @@ import altair as alt
 
 st.set_page_config(page_title="SDR Scraper 360", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
-# --- INITIALIZE SESSION STATE ---
-if 'all_companies' not in st.session_state:
-    st.session_state.all_companies = []
-if 'total_searches' not in st.session_state:
-    st.session_state.total_searches = 0
+HISTORY_FILE = "scraper_history.json"
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_history(data):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+if 'history_db' not in st.session_state:
+    st.session_state.history_db = load_history()
+    
+# Calculate globals
+total_all_leads = 0
+for q, leads in st.session_state.history_db.items():
+    total_all_leads += len(leads)
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -306,17 +323,18 @@ with colTop1:
     st.markdown("<h3>SDR Command Center</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color:#A0AEC0; font-size: 14px;'>Launch new extraction commands. Your history is saved during this session.</p>", unsafe_allow_html=True)
 with colTop2:
-    if st.button("Clear History", type="primary"):
-        st.session_state.all_companies = []
-        st.session_state.total_searches = 0
+    if st.button("🗑️ Clear All History", type="primary"):
+        save_history({})
+        st.session_state.history_db = {}
         st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # Calculate Dynamic Metrics
-total_leads = len(st.session_state.all_companies)
-emails_enriched = sum(1 for c in st.session_state.all_companies if c["Email"] != "No disponible")
-c_level_found = sum(1 for c in st.session_state.all_companies if c["NombreDirectivo"] != "No disponible")
+total_leads = sum(len(lst) for lst in st.session_state.history_db.values())
+emails_enriched = sum(1 for lst in st.session_state.history_db.values() for c in lst if c["Email"] != "No disponible")
+c_level_found = sum(1 for lst in st.session_state.history_db.values() for c in lst if c["NombreDirectivo"] != "No disponible")
+total_queries = len(st.session_state.history_db.keys())
 
 # Metrics Row
 col1, col2, col3, col4 = st.columns(4)
@@ -345,7 +363,7 @@ with col4:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-title">🎯 Total Searches Run</div>
-        <div class="metric-value">{st.session_state.total_searches} <span class="metric-delta">Queries</span></div>
+        <div class="metric-value">{total_queries} <span class="metric-delta">Queries</span></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -420,17 +438,49 @@ if submitted and nicho and ubicacion:
             st.write("Fase 2: Enriqueciendo perfiles directivos en LinkedIn...")
             enrich_c_level(companies, serper_key)
             
-            # Save to global session history
-            st.session_state.all_companies.extend(companies)
-            st.session_state.total_searches += 1
+            # Save to persistent history under its specific query group
+            current_db = st.session_state.history_db
+            query_key = f"{nicho.title()} en {ubicacion.title()}"
+            if query_key not in current_db:
+                current_db[query_key] = []
             
-            status.update(label=f"¡{len(companies)} nuevas empresas extraídas y sumadas a tu historial!", state="complete", expanded=False)
-            st.rerun()
+            # Avoid dupes inside the specific query block just in case
+            exist_in_group = {c["Empresa"].lower().strip() for c in current_db[query_key]}
+            for c in companies:
+                if c["Empresa"].lower().strip() not in exist_in_group:
+                    current_db[query_key].append(c)
+            
+            st.session_state.history_db = current_db
+            save_history(current_db)
+            
+            status.update(label=f"¡{len(companies)} nuevas empresas extraídas para '{query_key}'!", state="complete", expanded=False)
+            
+        st.rerun()
+
+st.markdown("---")
+col_rep1, col_rep2 = st.columns([0.6, 0.4])
+with col_rep1:
+    st.markdown("#### 📂 Reports Database")
+with col_rep2:
+    if st.session_state.history_db:
+        options = ["Todos Combinados"] + list(st.session_state.history_db.keys())
+        selected_report = st.selectbox("Selecciona un historial para ver:", options)
+
+if st.session_state.history_db:
+    # Build the dataframe to display
+    display_list = []
+    if selected_report == "Todos Combinados":
+        for lst in st.session_state.history_db.values():
+            display_list.extend(lst)
+    else:
+        display_list = st.session_state.history_db[selected_report]
         
-st.markdown("#### Reports overview")
-if len(st.session_state.all_companies) > 0:
-    df = pd.DataFrame(st.session_state.all_companies)
+    df = pd.DataFrame(display_list)
     cols = ["Empresa", "Direccion", "Telefono", "SitioWeb", "Email", "LinkedInEmpresa", "Instagram", "Facebook", "NombreDirectivo", "Cargo", "LinkedInDirectivo"]
+    # Ensure all columns exist
+    for col in cols:
+        if col not in df.columns:
+            df[col] = "No disponible"
     df = df[cols]
         
     # Display the custom styled dataframe
@@ -441,10 +491,10 @@ if len(st.session_state.all_companies) > 0:
     col_down1, _ = st.columns([1, 4])
     with col_down1:
         st.download_button(
-            label="📥 Export Cumulative Data (CSV)",
+            label=f"📥 Exportar Datos ({selected_report})",
             data=csv,
-            file_name=f'Leads_History.csv',
+            file_name=f'Leads_{selected_report.replace(" ", "_")}.csv',
             mime='text/csv',
         )
 else:
-    st.info("Your scraping history is currently empty. Run a new extraction above to start populating this dashboard.")
+    st.info("Your scraping database is currently empty. Run a new extraction above to save your first target.")
