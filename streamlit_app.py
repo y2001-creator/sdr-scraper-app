@@ -296,8 +296,10 @@ with st.sidebar:
     
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("**Account**")
-    outscraper_key = st.text_input("Outscraper API Key", value="", type="password")
-    serper_key = st.text_input("Serper API Key", value="", type="password")
+    def_out = st.secrets.get("OUTSCRAPER_KEY", "") if hasattr(st, "secrets") else ""
+    def_serp = st.secrets.get("SERPER_KEY", "") if hasattr(st, "secrets") else ""
+    outscraper_key = st.text_input("Outscraper API Key", value=def_out, type="password")
+    serper_key = st.text_input("Serper API Key", value=def_serp, type="password")
 
 
 # Main Area
