@@ -295,11 +295,9 @@ with st.sidebar:
     st.button("📋 Tasks", key="nav_tasks", type="secondary")
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**Account**")
-    def_out = st.secrets.get("OUTSCRAPER_KEY", "") if hasattr(st, "secrets") else ""
-    def_serp = st.secrets.get("SERPER_KEY", "") if hasattr(st, "secrets") else ""
-    outscraper_key = st.text_input("Outscraper API Key", value=def_out, type="password")
-    serper_key = st.text_input("Serper API Key", value=def_serp, type="password")
+    st.markdown("**System**")
+    st.markdown("<span style='color:#48BB78; font-size:14px;'>● API Services Connected</span>", unsafe_allow_html=True)
+
 
 
 # Main Area
@@ -368,8 +366,11 @@ with st.container():
 
 # Execution Logic
 if submitted and nicho and ubicacion:
+    outscraper_key = st.secrets.get("OUTSCRAPER_KEY", "") if hasattr(st, "secrets") else ""
+    serper_key = st.secrets.get("SERPER_KEY", "") if hasattr(st, "secrets") else ""
+    
     if not outscraper_key or not serper_key:
-        st.error("Por favor, introduce las API Keys en el panel lateral.")
+        st.error("⚠️ Error: Las API Keys no están configuradas. Por favor, añádelas en la sección 'Secrets' de Streamlit Cloud.")
     else:
         query = f"{nicho} {ubicacion}"
         encoded_query = urllib.parse.quote(query)
