@@ -410,7 +410,11 @@ if submitted and nicho and ubicacion:
                 companies_raw = data["data"][0]
                 
             # Filter duplicates BEFORE heavy scraping
-            existing_names = {c["Empresa"].lower().strip() for c in st.session_state.all_companies}
+            existing_names = {
+                c["Empresa"].lower().strip() 
+                for lst in st.session_state.history_db.values() 
+                for c in lst
+            }
             
             companies = []
             for item in companies_raw: 
